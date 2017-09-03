@@ -7,6 +7,7 @@ from dask.compatibility import apply
 import dask.threaded
 import dask.base
 import shapely
+import shapely.ops
 from toolz import merge
 
 import operator
@@ -46,6 +47,9 @@ class GeoFrame(dask.base.Base):
                 key_split(self._name), self.npartitions)
 
     __repr__ = __str__
+
+    def __len__(self):
+        return len(self.compute())  # TODO: map_partitions(len).sum().compute()
 
     def plot(self):
         return self._regions.plot()
@@ -256,10 +260,13 @@ def from_pandas(df, npartitions=4):
 
     blocksize = len(df) // npartitions
     name = 'from-pandas-' + tokenize(df, npartitions)
-    dsk = {(name, i): df.iloc[i: i + blocksize]
-           for i in range(0, len(df), blocksize)}
-    i = npartitions - 1
-    dsk[name, i] = df.iloc[blocksize * i:]
+    if npartitions > 1:
+        dsk = {(name, i): df.iloc[i * blocksize: (i + 1) * blocksize]
+               for i in range(0, len(df) // blocksize)}
+        i = npartitions - 1
+        dsk[name, i] = df.iloc[blocksize * i:]
+    else:
+        dsk = {(name, 0): df}
 
     return GeoDataFrame(dsk, name, [region] * npartitions, df.head(0))
 
@@ -269,11 +276,42 @@ def _normalize_geoframe(gdf):
     return gdf._name
 
 
-def partition(df, partitions):
-    partitions = gpd.GeoDataFrame({'geometry': partitions.geometry},
-                                  crs=partitions.crs)
-    j = gpd.sjoin(partitions, df, how='inner').index_right
-    name = 'from-pandas-' + tokenize(df, partitions)
-    dsk = {(name, i): df.loc[j.loc[i]] for i in range(len(partitions))}
+def repartition(df, partitions):
+    if not isinstance(df, GeoFrame):
+        df = from_pandas(df, npartitions=2)
+    if isinstance(partitions, GeoDataFrame):
+        partitions = partitions.geometry
+    elif not isinstance(partitions, gpd.GeoSeries):
+        partitions = gpd.GeoSeries(partitions)
+    partitions = gpd.GeoDataFrame({'geometry': partitions}, crs=partitions.crs)
+    df_geom = gpd.GeoDataFrame({'geometry': df._regions})
 
-    return GeoDataFrame(dsk, name, partitions.geometry, df.head(0))
+    joined = gpd.sjoin(partitions, df_geom, how='inner')
+    token = tokenize(df, partitions)
+    name = 'repartition-pre-' + token
+    dsk = {}
+    regions = []
+
+    for i, (j, (ind, geom)) in enumerate(joined.iterrows()):
+        dsk[(name, i)] = (_subset_geom, (df._name, ind), geom)
+        geom2 = geom.intersection(df._regions.loc[ind])
+        regions.append(geom2)
+
+    new_name = 'repartition-' + token
+    ind = pd.Series(joined.index)
+    groups = ind.groupby(ind)
+
+    regions2 = []
+    i = 0
+    for group in groups.groups.values():
+        if len(group):
+            dsk[(new_name, i)] = (gpd.concat, [(name, j) for j in group])
+            region = shapely.ops.unary_union([regions[j] for j in group])
+            regions2.append(region)
+            i += 1
+
+    return GeoDataFrame(merge(dsk, df.dask), new_name, regions2, df.head(0))
+
+
+def _subset_geom(df, geom):
+    return df[df.geometry.representative_point().within(geom)]

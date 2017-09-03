@@ -22,8 +22,8 @@ grid_df = gpd.GeoDataFrame({'x': np.concatenate([inds] * 10),
                             'y': np.repeat(inds, 10),
                             'geometry': grid})
 
-points = [Point(random.random(), random.random()) for i in range(100)]
-points_df = gpd.GeoDataFrame({'value': np.random.random(100),
+points = [Point(random.random(), random.random()) for i in range(200)]
+points_df = gpd.GeoDataFrame({'value': np.random.random(len(points)),
                               'geometry': points})
 
 
@@ -118,18 +118,6 @@ def test_unary_method(npartitions, op, args):
     assert_eq(func(ddf.geometry), func(df.geometry))
 
 
-
-def test_partition():
-    df = dg.partition(points_df, tri_df)
-    assert df.npartitions == len(tri_df)
-    assert set(df.value.compute()) == set(points_df.value)
-
-    for i in range(df.npartitions):
-        part = df.get_partition(i)
-        geoms = part.geometry.compute()
-        assert geoms.within(part._regions.iloc[0]).all()
-
-
 def test_head():
     ddf = dg.from_pandas(points_df, npartitions=5)
     head = ddf.head(5)
@@ -144,3 +132,30 @@ def test_repr(func):
     assert '5' in text
     assert 'dataframe' in text.lower()
     assert 'from-pandas' in text.lower()
+
+
+def test_repartition():
+    df = points_df
+    df = dg.repartition(df, triangles)
+    assert df.npartitions == 2
+    assert len(df) == len(points_df)
+
+    for i in range(df.npartitions):
+        part = df.get_partition(i)
+        geoms = part.geometry.compute()
+        assert geoms.within(part._regions.iloc[0]).all()
+
+    df2 = dg.repartition(df, grid)
+    assert len(df2) == len(points_df)
+    assert df2.npartitions == len(grid)
+
+    for i in range(df.npartitions):
+        part = df.get_partition(i)
+        geoms = part.geometry.compute()
+        assert geoms.within(part._regions.iloc[0]).all()
+
+
+def test_len():
+    df = points_df
+    ddf = dg.from_pandas(df, npartitions=3)
+    assert len(ddf) == len(df)

@@ -1,1 +1,1 @@
-from .core import GeoDataFrame, GeoSeries, from_pandas, partition
+from .core import GeoDataFrame, GeoSeries, from_pandas, repartition
