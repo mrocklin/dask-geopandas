@@ -56,11 +56,21 @@ def test_basic(npartitions):
 
 @pytest.mark.parametrize('npartitions', [1, 2])
 @pytest.mark.parametrize('op', [
-    'geom_equals',
-    'distance',
     'contains',
+    'geom_equals',
+    'geom_almost_equals',
+    'crosses',
+    'disjoint',
     'intersects',
-    'touches'
+    'overlaps',
+    'touches',
+    'within',
+    'distance',
+    'difference',
+    'symmetric_difference',
+    'union',
+    'intersection',
+    'distance',
 ])
 def test_binary_singleton(npartitions, op):
     df = gpd.GeoDataFrame({'x': [1, 2], 'geometry': triangles})
@@ -70,6 +80,7 @@ def test_binary_singleton(npartitions, op):
         return getattr(a, op)(b)
 
     point = Point(0.2, 0.2)
+    result = func(ddf, point)
     assert_eq(func(ddf, point), func(df, point))
     assert_eq(func(ddf.geometry, point), func(df.geometry, point))
 
@@ -79,7 +90,7 @@ def test_binary_singleton(npartitions, op):
     'area',
     'length',
 ])
-def test_unary(npartitions, op):
+def test_unary_property(npartitions, op):
     df = gpd.GeoDataFrame({'x': [1, 2], 'geometry': triangles})
     ddf = dg.from_pandas(df, npartitions=npartitions)
 
@@ -89,6 +100,23 @@ def test_unary(npartitions, op):
     point = Point(0.2, 0.2)
     assert_eq(func(ddf), func(df))
     assert_eq(func(ddf.geometry), func(df.geometry))
+
+
+@pytest.mark.parametrize('npartitions', [1, 2])
+@pytest.mark.parametrize('op,args', [
+    ('buffer', (1,)),
+])
+def test_unary_method(npartitions, op, args):
+    df = gpd.GeoDataFrame({'x': [1, 2], 'geometry': triangles})
+    ddf = dg.from_pandas(df, npartitions=npartitions)
+
+    def func(a):
+        return getattr(a, op)(*args)
+
+    point = Point(0.2, 0.2)
+    assert_eq(func(ddf), func(df))
+    assert_eq(func(ddf.geometry), func(df.geometry))
+
 
 
 def test_partition():
