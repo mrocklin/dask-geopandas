@@ -1,1 +1,1 @@
-from .core import GeoDataFrame, GeoSeries, from_pandas, repartition
+from .core import GeoDataFrame, GeoSeries, from_pandas, repartition, sjoin

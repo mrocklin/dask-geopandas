@@ -22,6 +22,13 @@ grid_df = gpd.GeoDataFrame({'x': np.concatenate([inds] * 10),
                             'y': np.repeat(inds, 10),
                             'geometry': grid})
 
+delta = 0.3
+coarse_inds = np.arange(0, 1, delta)
+coarse_grid = [Polygon([(x, y), (x + delta, y),
+                       (x + delta, y + delta), (x, y + delta)])
+               for x in coarse_inds
+               for y in coarse_inds]
+
 points = [Point(random.random(), random.random()) for i in range(200)]
 points_df = gpd.GeoDataFrame({'value': np.random.random(len(points)),
                               'geometry': points})
@@ -125,6 +132,14 @@ def test_head():
     assert_eq(head, points_df.head(5))
 
 
+def test_persist():
+    df = dg.from_pandas(points_df, npartitions=5)
+    df = dg.repartition(df, triangles)
+
+    df2 = df.persist()
+    assert not any(map(dask.core.istask, df2.dask.values()))
+
+
 @pytest.mark.parametrize('func', [str, repr])
 def test_repr(func):
     ddf = dg.from_pandas(points_df, npartitions=5)
@@ -136,26 +151,66 @@ def test_repr(func):
 
 def test_repartition():
     df = points_df
-    df = dg.repartition(df, triangles)
+    df = dg.repartition(df, triangles).persist()
     assert df.npartitions == 2
     assert len(df) == len(points_df)
+    assert df._regions.iloc[0].equals(triangles[0])
+    assert df._regions.iloc[1].equals(triangles[1])
 
     for i in range(df.npartitions):
         part = df.get_partition(i)
         geoms = part.geometry.compute()
         assert geoms.within(part._regions.iloc[0]).all()
 
-    df2 = dg.repartition(df, grid)
+    df2 = df.repartition(grid).persist()
     assert len(df2) == len(points_df)
     assert df2.npartitions == len(grid)
 
+    for i in range(df2.npartitions):
+        part = df2.get_partition(i)
+        geoms = part.geometry.compute()
+        assert geoms.within(part._regions.iloc[0]).all()
+
+
+def test_repartition_polys():
+    with dask.set_options(get=dask.get):
+        df = dg.from_pandas(grid_df, npartitions=3)
+        assert len(df) == len(grid_df)
+        df = dg.repartition(df, triangles)
+        # assert len(df) == len(grid_df)  # fails because touches fails
+        df = df.persist()
+
+        assert df.npartitions == 2
+
+        for i in range(df.npartitions):
+            part = df.get_partition(i)
+            geoms = part.geometry.compute()
+            assert geoms.within(part._regions.iloc[0]).all()
+
+
+def test_repartition_pandas_expands_regions():
+    df = dg.repartition(grid_df, triangles)
+
     for i in range(df.npartitions):
         part = df.get_partition(i)
         geoms = part.geometry.compute()
         assert geoms.within(part._regions.iloc[0]).all()
+
+    assert len(df) == len(grid_df)
 
 
 def test_len():
     df = points_df
     ddf = dg.from_pandas(df, npartitions=3)
     assert len(ddf) == len(df)
+
+
+def test_sjoin():
+    import shapely.affinity
+    l = dg.repartition(points_df, [shapely.affinity.translate(t, 0.00001, 0) for t
+        in triangles])
+    r = dg.repartition(grid_df, coarse_grid)
+
+    result = dg.sjoin(l, r, how='inner', op='intersects')
+    expected = gpd.sjoin(points_df, grid_df, how='inner', op='intersects')
+    assert len(result) == len(expected)

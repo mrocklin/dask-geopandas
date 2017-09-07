@@ -1,3 +1,5 @@
+import random
+
 import geopandas as gpd
 import pandas as pd
 from dask.utils import M, funcname
@@ -50,6 +52,15 @@ class GeoFrame(dask.base.Base):
 
     def __len__(self):
         return len(self.compute())  # TODO: map_partitions(len).sum().compute()
+
+    def copy(self):
+        return type(self)(self.dask, self._name, self._regions, self._example)
+
+    def __getstate__(self):
+        return self.dask, self._name, self._regions, self._example
+
+    def __setstate__(self, state):
+        self.dask, self._name, self._regions, self._example = state
 
     def plot(self):
         return self._regions.plot()
@@ -198,6 +209,9 @@ class GeoFrame(dask.base.Base):
                 mitre_limit=mitre_limit)
         return df
 
+    def repartition(self, partitions, trim=True, duplicate=False):
+        return repartition(self, partitions, trim=trim, duplicate=duplicate)
+
 
 class GeoDataFrame(GeoFrame):
     def __getitem__(self, key):
@@ -276,13 +290,47 @@ def _normalize_geoframe(gdf):
     return gdf._name
 
 
-def repartition(df, partitions):
-    if not isinstance(df, GeoFrame):
-        df = from_pandas(df, npartitions=2)
+def _repartition_pandas(df, partitions):
+    partitions = gpd.GeoDataFrame({'geometry': partitions.geometry},
+                                  crs=partitions.crs)
+    j = gpd.sjoin(partitions, df, how='inner', op='intersects').index_right
+    name = 'from-geopandas-' + tokenize(df, partitions)
+    dsk = {}
+    new_partitions = []
+    for i, partition in enumerate(partitions.geometry):
+        subset = df.loc[j.loc[i]]
+        subset = subset[subset.geometry.representative_point().intersects(partition)]
+        dsk[name, i] = subset
+        if (subset.geometry.type == 'Point').all():
+            new_partitions.append(partition)
+        else:
+            new_partitions.append(subset.geometry.unary_union)
+
+    result = GeoDataFrame(dsk, name, new_partitions, df.head(0))
+    return result
+
+
+def repartition(df, partitions, trim=True, duplicate=False):
+    """ Repartition a GeoDataFrame along new partitions
+
+    Parameters
+    ----------
+    df: GeoDataFrame
+    partitions: collection of Geometries
+    trim: boolean
+        Whether or not to include partitions that may be empty
+    duplicate: boolean (default to False)
+        Whether or not to include geometries in multiple partitions if they
+        intersect.  Otherwise only include a geometry if its representative
+        point intersects with the region
+    """
     if isinstance(partitions, GeoDataFrame):
         partitions = partitions.geometry
     elif not isinstance(partitions, gpd.GeoSeries):
         partitions = gpd.GeoSeries(partitions)
+    if isinstance(df, (gpd.GeoSeries, gpd.GeoDataFrame)):
+        return _repartition_pandas(df, partitions)
+
     partitions = gpd.GeoDataFrame({'geometry': partitions}, crs=partitions.crs)
     df_geom = gpd.GeoDataFrame({'geometry': df._regions})
 
@@ -293,8 +341,8 @@ def repartition(df, partitions):
     regions = []
 
     for i, (j, (ind, geom)) in enumerate(joined.iterrows()):
-        dsk[(name, i)] = (_subset_geom, (df._name, ind), geom)
-        geom2 = geom.intersection(df._regions.loc[ind])
+        dsk[(name, i)] = (_subset_geom, (df._name, ind), geom, duplicate)
+        geom2 = df._regions.loc[ind]
         regions.append(geom2)
 
     new_name = 'repartition-' + token
@@ -304,7 +352,7 @@ def repartition(df, partitions):
     regions2 = []
     i = 0
     for group in groups.groups.values():
-        if len(group):
+        if len(group) or not trim:
             dsk[(new_name, i)] = (gpd.concat, [(name, j) for j in group])
             region = shapely.ops.unary_union([regions[j] for j in group])
             regions2.append(region)
@@ -313,5 +361,43 @@ def repartition(df, partitions):
     return GeoDataFrame(merge(dsk, df.dask), new_name, regions2, df.head(0))
 
 
-def _subset_geom(df, geom):
-    return df[df.geometry.representative_point().within(geom)]
+trans_x = 0.001# (random.random() - 0.5) / 1e100
+trans_y = 0.002# (random.random() - 0.5) / 1e100
+
+
+def _subset_geom(df, geom, duplicate=False):
+    if duplicate:
+        return df[df.geometry.intersects(geom)]
+    rep = df.geometry.representative_point()
+    intersects = rep.intersects(geom)
+    touches = rep.touches(geom)
+    if not touches.any():
+        return df[intersects]
+    else:
+        translated = shapely.affinity.translate(geom, trans_x, trans_y)
+        touched = rep[touches]
+        intersects2 = touched.intersects(translated)
+        return df[intersects ^ intersects2]
+
+
+def sjoin(left, right, how='inner', op='intersects', buffer=0.01):
+    name = 'sjoin-' + tokenize(left, right, how, op)
+    example = gpd.tools.sjoin(left._example, right._example, how=how, op=op)
+
+    parts = gpd.tools.sjoin(left._regions.to_frame(),
+                            right._regions.to_frame(),
+                            how='inner', op='intersects')
+    left_parts = parts._geometry_array
+    right_parts = right._regions._geometry_array[parts.index_right.values]
+    partitions = left_parts.intersection(right_parts)
+
+    left2 = left.repartition(gpd.GeoSeries(partitions), trim=False)
+    right2 = right.repartition(gpd.GeoSeries(partitions), trim=False,
+                               duplicate=True)
+
+    dsk = {(name, i): (gpd.tools.sjoin, l, r, op, how)
+           for i, (l, r) in enumerate(zip(left2._keys(), right2._keys()))}
+
+    regions = partitions.buffer(buffer).intersection(left_parts.union(right_parts))
+
+    return GeoDataFrame(merge(dsk, left2.dask, right2.dask), name, regions, example)
