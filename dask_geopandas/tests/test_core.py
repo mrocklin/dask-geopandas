@@ -12,20 +12,20 @@ triangles = [Polygon([(0, 0), (1, 0), (0, 1)]),
              Polygon([(1, 0), (1, 1), (0, 1)])]
 tri_df = gpd.GeoDataFrame({'x': [1, 2], 'geometry': triangles})
 
-delta = 0.1
-inds = np.arange(0, 1, delta)
-grid = [Polygon([(x, y), (x + delta, y),
-                 (x + delta, y + delta), (x, y + delta)])
+fine_delta = 0.1
+inds = np.arange(0, 1, fine_delta)
+grid = [Polygon([(x, y), (x + fine_delta, y),
+                 (x + fine_delta, y + fine_delta), (x, y + fine_delta)])
         for x in inds
         for y in inds]
 grid_df = gpd.GeoDataFrame({'x': np.concatenate([inds] * 10),
                             'y': np.repeat(inds, 10),
                             'geometry': grid})
 
-delta = 0.3
-coarse_inds = np.arange(0, 1, delta)
-coarse_grid = [Polygon([(x, y), (x + delta, y),
-                       (x + delta, y + delta), (x, y + delta)])
+coarse_delta = 0.3
+coarse_inds = np.arange(0, 1, coarse_delta)
+coarse_grid = [Polygon([(x, y), (x + coarse_delta, y),
+                       (x + coarse_delta, y + coarse_delta), (x, y + coarse_delta)])
                for x in coarse_inds
                for y in coarse_inds]
 
@@ -214,3 +214,4 @@ def test_sjoin():
     result = dg.sjoin(l, r, how='inner', op='intersects')
     expected = gpd.sjoin(points_df, grid_df, how='inner', op='intersects')
     assert len(result) == len(expected)
+    assert (result._regions.area < (coarse_delta + 0.1) **2 ).all()

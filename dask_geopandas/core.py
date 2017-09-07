@@ -389,15 +389,14 @@ def sjoin(left, right, how='inner', op='intersects', buffer=0.01):
                             how='inner', op='intersects')
     left_parts = parts._geometry_array
     right_parts = right._regions._geometry_array[parts.index_right.values]
-    partitions = left_parts.intersection(right_parts)
 
-    left2 = left.repartition(gpd.GeoSeries(partitions), trim=False)
-    right2 = right.repartition(gpd.GeoSeries(partitions), trim=False,
-                               duplicate=True)
+    dsk = {}
+    regions = []
+    for i, (l, (r, _)) in enumerate(parts.iterrows()):
+        dsk[name, i] = (gpd.tools.sjoin, (left._name, l), (right._name, r), op, how)
+        lr = left._regions.iloc[l]
+        rr = right._regions.iloc[l]
+        region = lr.intersection(rr).buffer(buffer).intersection(lr.union(rr))
+        regions.append(region)
 
-    dsk = {(name, i): (gpd.tools.sjoin, l, r, op, how)
-           for i, (l, r) in enumerate(zip(left2._keys(), right2._keys()))}
-
-    regions = partitions.buffer(buffer).intersection(left_parts.union(right_parts))
-
-    return GeoDataFrame(merge(dsk, left2.dask, right2.dask), name, regions, example)
+    return GeoDataFrame(merge(dsk, left.dask, right.dask), name, regions, example)
