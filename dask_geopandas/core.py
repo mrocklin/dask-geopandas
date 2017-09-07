@@ -68,6 +68,10 @@ class GeoFrame(dask.base.Base):
     def _keys(self):
         return [(self._name, i) for i in range(len(self._regions))]
 
+    @property
+    def npartitions(self):
+        return len(self._regions)
+
     def map_partitions(self, func, *args, **kwargs):
         example = func(self._example, *args, **kwargs)
         name = funcname(func) + '-' + tokenize(self, func, *args, **kwargs)
@@ -241,10 +245,6 @@ class GeoDataFrame(GeoFrame):
     def dtype(self):
         return self._example.dtype
 
-    @property
-    def npartitions(self):
-        return len(self._regions)
-
 
 class GeoSeries(GeoFrame):
     @property
@@ -293,18 +293,28 @@ def _normalize_geoframe(gdf):
 def _repartition_pandas(df, partitions):
     partitions = gpd.GeoDataFrame({'geometry': partitions.geometry},
                                   crs=partitions.crs)
-    j = gpd.sjoin(partitions, df, how='inner', op='intersects').index_right
+    joined = gpd.sjoin(partitions, df, how='inner', op='intersects').index_right
     name = 'from-geopandas-' + tokenize(df, partitions)
     dsk = {}
     new_partitions = []
+
+    j = 0
     for i, partition in enumerate(partitions.geometry):
-        subset = df.loc[j.loc[i]]
-        subset = subset[subset.geometry.representative_point().intersects(partition)]
-        dsk[name, i] = subset
-        if (subset.geometry.type == 'Point').all():
+        try:
+            ind = joined.loc[i]
+        except KeyError:
+            continue
+        else:
+            if not isinstance(ind, pd.Series):
+                ind = pd.Series([ind])
+            subset = df.loc[ind]
+        subset2 = subset[subset.geometry.representative_point().intersects(partition)]
+        dsk[name, j] = subset2
+        j += 1
+        if (subset2.geometry.type == 'Point').all():
             new_partitions.append(partition)
         else:
-            new_partitions.append(subset.geometry.unary_union)
+            new_partitions.append(subset2.geometry.unary_union)
 
     result = GeoDataFrame(dsk, name, new_partitions, df.head(0))
     return result

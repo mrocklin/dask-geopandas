@@ -143,10 +143,10 @@ def test_persist():
 @pytest.mark.parametrize('func', [str, repr])
 def test_repr(func):
     ddf = dg.from_pandas(points_df, npartitions=5)
-    text = func(ddf)
-    assert '5' in text
-    assert 'dataframe' in text.lower()
-    assert 'from-pandas' in text.lower()
+    for x in [ddf, ddf.value, ddf.geometry]:
+        text = func(x)
+        assert '5' in text
+        assert type(x).__name__ in text
 
 
 def test_repartition():
@@ -197,6 +197,19 @@ def test_repartition_pandas_expands_regions():
         assert geoms.within(part._regions.iloc[0]).all()
 
     assert len(df) == len(grid_df)
+
+
+def test_repartition_trim():
+    polys = triangles + [Polygon([(10, 10), (10, 20), (20, 10)])]
+    df = dg.repartition(grid_df, polys)
+
+    assert df.npartitions == 2
+
+
+def test_repartition_single_element():
+    df = gpd.GeoDataFrame({'x': [1, 2], 'geometry': [Point(0, 0), Point(1, 1)]})
+    gdf = dg.repartition(df, triangles)
+    assert len(df) == 2
 
 
 def test_len():
