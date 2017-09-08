@@ -1,4 +1,5 @@
 import random
+import sys
 
 import geopandas as gpd
 import pandas as pd
@@ -6,10 +7,13 @@ from dask.utils import M, funcname
 from dask.base import tokenize, normalize_token
 from dask.optimize import key_split
 from dask.compatibility import apply
+import dask.dataframe as dd
 import dask.threaded
 import dask.base
 import shapely
 import shapely.ops
+from shapely.geometry.base import CAP_STYLE, JOIN_STYLE
+from shapely.geometry import Polygon, Point
 from toolz import merge
 
 import operator
@@ -203,8 +207,8 @@ class GeoFrame(dask.base.Base):
     def intersection(self, other):
         return self.map_partitions(M.intersection, other)
 
-    def buffer(self, distance, resolution=16, cap_style=gpd.CAP_STYLE.round,
-               join_style=gpd.JOIN_STYLE.round, mitre_limit=5.0):
+    def buffer(self, distance, resolution=16, cap_style=CAP_STYLE.round,
+               join_style=JOIN_STYLE.round, mitre_limit=5.0):
         df = self.map_partitions(M.buffer, distance, resolution=resolution,
                 cap_style=cap_style, join_style=join_style,
                 mitre_limit=mitre_limit)
@@ -266,11 +270,11 @@ class Series(GeoFrame):
         return self._example.name
 
 
-inf = 1e30
+inf = sys.float_info.max / 10
+all_space = shapely.geometry.Polygon([(inf, inf), (inf, -inf),
+                                      (-inf, -inf), (-inf, inf)])
 
 def from_pandas(df, npartitions=4):
-    region = shapely.geometry.Polygon([(inf, inf), (inf, -inf),
-                                       (-inf, -inf), (-inf, inf)])
 
     blocksize = len(df) // npartitions
     name = 'from-pandas-' + tokenize(df, npartitions)
@@ -282,7 +286,7 @@ def from_pandas(df, npartitions=4):
     else:
         dsk = {(name, 0): df}
 
-    return GeoDataFrame(dsk, name, [region] * npartitions, df.head(0))
+    return GeoDataFrame(dsk, name, [all_space] * npartitions, df.head(0))
 
 
 @normalize_token.register(GeoFrame)
@@ -410,3 +414,39 @@ def sjoin(left, right, how='inner', op='intersects', buffer=0.01):
         regions.append(region)
 
     return GeoDataFrame(merge(dsk, left.dask, right.dask), name, regions, example)
+
+
+def _points_from_xy(x, y, crs=None):
+    points = gpd.vectorized.points_from_xy(x.values, y.values)
+    return gpd.GeoSeries(points, index=x.index, crs=crs)
+
+
+def points_from_xy(x, y, crs=None):
+    s = dd.map_partitions(_points_from_xy, x, y, crs=crs)
+    example = gpd.GeoSeries(Point(0, 0))
+    return GeoSeries(s.dask, s._name, [all_space] * s.npartitions, example)
+
+
+def set_geometry(df, geometry):
+    if isinstance(geometry, dd.DataFrame) and len(geometry.columns) == 2:
+        a, b = geometry.columns
+        geometry = points_from_xy(geometry[a], geometry[b])
+
+    assert df.npartitions == geometry.npartitions
+
+    name = 'set-geometry-' + tokenize(df, geometry)
+    dsk = {(name, i): (M.set_geometry, (df._name, i), (geometry._name, i))
+            for i in range(df.npartitions)}
+    example = df._meta.set_geometry(geometry._example)
+
+    gdf = GeoDataFrame(merge(df.dask, geometry.dask, dsk),
+                       name, geometry._regions, example)
+    return gdf
+
+
+if sys.version_info[0] == 3:
+    dd.DataFrame.set_geometry = set_geometry
+else:
+    import types
+    dd.DataFrame.set_geometry = types.MethodType(set_geometry, None,
+            dd.DataFrame)

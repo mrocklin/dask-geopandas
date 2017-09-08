@@ -1,4 +1,5 @@
 import dask_geopandas as dg
+import dask.dataframe as dd
 import geopandas as gpd
 import random
 
@@ -228,3 +229,19 @@ def test_sjoin():
     expected = gpd.sjoin(points_df, grid_df, how='inner', op='intersects')
     assert len(result) == len(expected)
     assert (result._regions.area < (coarse_delta + 0.1) **2 ).all()
+
+
+def test_set_geometry():
+    df = pd.DataFrame({'x': [1, 2, 3, 4, 5],
+                       'y': [2, 3, 4, 5, 6],
+                       'value': [1, 1, 1, 2, 2]})
+    ddf = dd.from_pandas(df, npartitions=2)
+    gdf = ddf.set_geometry(ddf[['x', 'y']])
+    assert isinstance(gdf, dg.GeoDataFrame)
+    assert gdf.npartitions == ddf.npartitions
+
+    expected = gpd.vectorized.points_from_xy(df.x.values, df.y.values)
+    assert gdf.geometry.compute().equals(gpd.GeoSeries(expected))
+    assert isinstance(gdf.compute(), gpd.GeoDataFrame)
+    for c in ['x', 'y', 'value']:
+        assert c in gdf.columns
