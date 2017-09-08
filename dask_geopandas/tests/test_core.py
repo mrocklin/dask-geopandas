@@ -236,7 +236,8 @@ def test_set_geometry():
                        'y': [2, 3, 4, 5, 6],
                        'value': [1, 1, 1, 2, 2]})
     ddf = dd.from_pandas(df, npartitions=2)
-    gdf = ddf.set_geometry(ddf[['x', 'y']])
+    gdf = ddf.set_geometry(ddf[['x', 'y']], crs='foo')
+    assert gdf.compute().crs == 'foo'
     assert isinstance(gdf, dg.GeoDataFrame)
     assert gdf.npartitions == ddf.npartitions
 

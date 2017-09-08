@@ -427,15 +427,16 @@ def points_from_xy(x, y, crs=None):
     return GeoSeries(s.dask, s._name, [all_space] * s.npartitions, example)
 
 
-def set_geometry(df, geometry):
+def set_geometry(df, geometry, crs=None):
     if isinstance(geometry, dd.DataFrame) and len(geometry.columns) == 2:
         a, b = geometry.columns
-        geometry = points_from_xy(geometry[a], geometry[b])
+        geometry = points_from_xy(geometry[a], geometry[b], crs=crs)
 
     assert df.npartitions == geometry.npartitions
 
     name = 'set-geometry-' + tokenize(df, geometry)
-    dsk = {(name, i): (M.set_geometry, (df._name, i), (geometry._name, i))
+    dsk = {(name, i): (M.set_geometry, (df._name, i), (geometry._name, i),
+        False, False, crs)
             for i in range(df.npartitions)}
     example = df._meta.set_geometry(geometry._example)
 
