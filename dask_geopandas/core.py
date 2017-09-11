@@ -409,7 +409,7 @@ def sjoin(left, right, how='inner', op='intersects', buffer=0.01):
     for i, (l, (r, _)) in enumerate(parts.iterrows()):
         dsk[name, i] = (gpd.tools.sjoin, (left._name, l), (right._name, r), op, how)
         lr = left._regions.iloc[l]
-        rr = right._regions.iloc[l]
+        rr = right._regions.iloc[r]
         region = lr.intersection(rr).buffer(buffer).intersection(lr.union(rr))
         regions.append(region)
 
