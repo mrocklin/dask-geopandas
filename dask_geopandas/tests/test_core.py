@@ -9,6 +9,7 @@ import shapely.affinity
 import dask
 import numpy as np
 import pandas as pd
+import pandas.util.testing as tm
 
 triangles = [Polygon([(0, 0), (1, 0), (0, 1)]),
              Polygon([(1, 0), (1, 1), (0, 1)])]
@@ -42,7 +43,11 @@ def assert_eq(a, b):
     if hasattr(a, 'dtype'):
         assert a.dtype == b.dtype
     if hasattr(a, 'dtypes'):
-        assert (a.dtypes == b.dtypes).all()
+        result = a.dtypes == b.dtypes
+        if isinstance(result, bool):
+            assert result
+        else:
+            assert result.all()
 
     aa = a
     bb = b
@@ -51,7 +56,30 @@ def assert_eq(a, b):
     if hasattr(b, 'dask'):
         bb = b.compute(get=dask.get)
 
-    assert str(aa) == str(bb)
+    assert type(aa) == type(bb)
+
+    aa = aa.sort_index()
+    bb = bb.sort_index()
+
+    if isinstance(aa, gpd.GeoSeries):
+        assert aa._values.equals(bb._values).all()
+
+    elif isinstance(aa, gpd.GeoDataFrame):
+        assert (aa.columns == bb.columns).all()
+        for c in aa.columns:
+            if c == aa._geometry_column_name:
+                assert aa[c]._values.equals(bb[c]._values).all()
+            else:
+                tm.assert_series_equal(aa[c], bb[c])
+
+    elif isinstance(aa, pd.Series):
+        tm.assert_series_equal(aa, bb)
+
+    elif isinstance(aa, pd.DataFrame):
+        tm.assert_frame_equal(aa, bb)
+
+    else:
+        assert aa == bb
 
 
 @pytest.mark.parametrize('npartitions', [1, 2])
@@ -263,3 +291,15 @@ def test_set_geometry():
     assert isinstance(gdf.compute(), gpd.GeoDataFrame)
     for c in ['x', 'y', 'value']:
         assert c in gdf.columns
+
+
+def test_sjoin_dask_normal():
+    df = dg.repartition(points_df, triangles)
+
+    result = dg.sjoin(df, grid_df, buffer=0)
+    expected = gpd.sjoin(points_df, grid_df)
+    assert_eq(result, expected)
+
+    df._regions.name = None
+
+    assert_eq(result._regions, df._regions)

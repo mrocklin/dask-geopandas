@@ -395,6 +395,8 @@ def _subset_geom(df, geom, duplicate=False):
 
 
 def sjoin(left, right, how='inner', op='intersects', buffer=0.01):
+    if isinstance(right, gpd.GeoDataFrame):
+        right = from_pandas(right, npartitions=1)
     name = 'sjoin-' + tokenize(left, right, how, op)
     example = gpd.tools.sjoin(left._example, right._example, how=how, op=op)
 
