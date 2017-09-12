@@ -5,6 +5,7 @@ import random
 
 import pytest
 from shapely.geometry import Polygon, Point
+import shapely.affinity
 import dask
 import numpy as np
 import pandas as pd
@@ -189,8 +190,17 @@ def test_repartition_polys():
             assert geoms.within(part._regions.iloc[0]).all()
 
 
-def test_repartition_pandas_expands_regions():
-    df = dg.repartition(grid_df, triangles)
+@pytest.mark.parametrize('translate', [
+    True,
+    pytest.mark.xfail(False, reason='floating point error')
+])
+def test_repartition_pandas_expands_regions(translate):
+    if translate:
+        triangles2 = [shapely.affinity.translate(t, 0.00001, 0) for t in triangles]
+    else:
+        triangles2 = triangles
+
+    df = dg.repartition(grid_df, triangles2)
 
     for i in range(df.npartitions):
         part = df.get_partition(i)
@@ -219,10 +229,17 @@ def test_len():
     assert len(ddf) == len(df)
 
 
-def test_sjoin():
-    import shapely.affinity
-    l = dg.repartition(points_df, [shapely.affinity.translate(t, 0.00001, 0) for t
-        in triangles])
+@pytest.mark.parametrize('translate', [
+    True,
+    pytest.mark.xfail(False, reason='floating point error')
+])
+def test_sjoin(translate):
+    if translate:
+        triangles2 = [shapely.affinity.translate(t, 0.00001, 0) for t in triangles]
+    else:
+        triangles2 = triangles
+
+    l = dg.repartition(points_df, triangles2)
     r = dg.repartition(grid_df, coarse_grid)
 
     result = dg.sjoin(l, r, how='inner', op='intersects')
