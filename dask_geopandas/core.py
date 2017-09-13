@@ -453,3 +453,27 @@ else:
     import types
     dd.DataFrame.set_geometry = types.MethodType(set_geometry, None,
             dd.DataFrame)
+
+
+try:
+    from distributed.sizeof import sizeof
+except ImportError:
+    pass
+else:
+    @sizeof.register_lazy('geopandas')
+    def register_geopandas():
+
+        import geopandas as gpd
+
+        @sizeof.register(gpd.GeoDataFrame)
+        def register_geodataframe(df):
+            # TODO: sample wkb
+            if df._geometry_column_name in df.columns:
+                return sizeof(df.drop(df._geometry_column_name, axis=1)) + len(df) * 100
+            else:
+                return sizeof(pd.DataFrame(df))
+
+        @sizeof.register(gpd.GeoSeries)
+        def register_geoseries(s):
+            # TODO: sample wkb
+            return len(s) * 100

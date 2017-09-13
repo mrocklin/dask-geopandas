@@ -1,5 +1,6 @@
 import dask_geopandas as dg
 import dask.dataframe as dd
+from distributed.sizeof import sizeof
 import geopandas as gpd
 import random
 
@@ -303,3 +304,7 @@ def test_sjoin_dask_normal():
     df._regions.name = None
 
     assert_eq(result._regions, df._regions)
+
+
+def test_sizeof():
+    assert sizeof(grid_df) > sizeof(grid_df[['x', 'y']])
