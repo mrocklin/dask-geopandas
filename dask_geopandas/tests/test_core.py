@@ -308,3 +308,11 @@ def test_sjoin_dask_normal():
 
 def test_sizeof():
     assert sizeof(grid_df) > sizeof(grid_df[['x', 'y']])
+
+
+def test_sjoin_dask_normal():
+    df = dg.repartition(points_df, triangles)
+    assert isinstance(df.value, dd.Series)
+    assert isinstance(df[['value']], dd.DataFrame)
+    assert_eq((df.value > 0.5).value_counts(),
+              (points_df.value > 0.5).value_counts())

@@ -25,7 +25,9 @@ def typeof(example):
     elif isinstance(example, gpd.GeoSeries):
         return GeoSeries
     elif isinstance(example, pd.Series):
-        return Series
+        return dd.Series
+    elif isinstance(example, pd.DataFrame):
+        return dd.DataFrame
     else:
         raise TypeError()
 
@@ -40,7 +42,7 @@ class GeoFrame(dask.base.Base):
         else:
             return pd.concat(results)
 
-    def __init__(self, dsk, name, regions, example):
+    def __init__(self, dsk, name, example, regions):
         if not isinstance(regions, gpd.GeoSeries):
             regions = gpd.GeoSeries(regions)
         self._regions = regions
@@ -58,13 +60,13 @@ class GeoFrame(dask.base.Base):
         return len(self.compute())  # TODO: map_partitions(len).sum().compute()
 
     def copy(self):
-        return type(self)(self.dask, self._name, self._regions, self._example)
+        return type(self)(self.dask, self._name, self._example, self._regions)
 
     def __getstate__(self):
-        return self.dask, self._name, self._regions, self._example
+        return self.dask, self._name, self._example, self._regions
 
     def __setstate__(self, state):
-        self.dask, self._name, self._regions, self._example = state
+        self.dask, self._name, self._example, self._regions = state
 
     def plot(self):
         return self._regions.plot()
@@ -84,14 +86,18 @@ class GeoFrame(dask.base.Base):
         else:
             dsk = {(name, i): (apply, func, list((key,) + args), kwargs)
                    for i, key in enumerate(self._keys())}
+        if isinstance(example, gpd.base.GeoPandasBase):
+            regions = self._regions
+        else:
+            regions = [None] * (self.npartitions + 1)
         return typeof(example)(merge(dsk, self.dask), name,
-                               self._regions, example)
+                               example, regions)
 
     def get_partition(self, n):
         name = 'get-partition-%d-%s' % (n, tokenize(self))
         dsk = {(name, 0): (self._name, n)}
         return type(self)(merge(dsk, self.dask), name,
-                          self._regions.iloc[n:n + 1], self._example)
+                          self._example, self._regions.iloc[n:n + 1])
 
     def head(self, n=5, compute=True):
         result = self.get_partition(0).map_partitions(M.head, n)
@@ -223,7 +229,7 @@ class GeoFrame(dask.base.Base):
 
 class GeoDataFrame(GeoFrame):
     def __getitem__(self, key):
-        if isinstance(key, str) and key in self.columns:
+        if isinstance(key, str) and key in self.columns or isinstance(key, list):
             return self.map_partitions(operator.getitem, key)
         raise NotImplementedError()
 
@@ -260,16 +266,6 @@ class GeoSeries(GeoFrame):
         return self._example.crs
 
 
-class Series(GeoFrame):
-    @property
-    def dtype(self):
-        return self._example.dtype
-
-    @property
-    def name(self):
-        return self._example.name
-
-
 inf = sys.float_info.max / 10
 all_space = shapely.geometry.Polygon([(inf, inf), (inf, -inf),
                                       (-inf, -inf), (-inf, inf)])
@@ -286,7 +282,7 @@ def from_pandas(df, npartitions=4):
     else:
         dsk = {(name, 0): df}
 
-    return GeoDataFrame(dsk, name, [all_space] * npartitions, df.head(0))
+    return GeoDataFrame(dsk, name, df.head(0), [all_space] * npartitions)
 
 
 @normalize_token.register(GeoFrame)
@@ -320,7 +316,7 @@ def _repartition_pandas(df, partitions):
         else:
             new_partitions.append(subset2.geometry.unary_union)
 
-    result = GeoDataFrame(dsk, name, new_partitions, df.head(0))
+    result = GeoDataFrame(dsk, name, df.head(0), new_partitions)
     return result
 
 
@@ -372,7 +368,7 @@ def repartition(df, partitions, trim=True, duplicate=False):
             regions2.append(region)
             i += 1
 
-    return GeoDataFrame(merge(dsk, df.dask), new_name, regions2, df.head(0))
+    return GeoDataFrame(merge(dsk, df.dask), new_name, df.head(0), regions2)
 
 
 trans_x = 0.001# (random.random() - 0.5) / 1e100
@@ -415,7 +411,7 @@ def sjoin(left, right, how='inner', op='intersects', buffer=0.01):
         region = lr.intersection(rr).buffer(buffer).intersection(lr.union(rr))
         regions.append(region)
 
-    return GeoDataFrame(merge(dsk, left.dask, right.dask), name, regions, example)
+    return GeoDataFrame(merge(dsk, left.dask, right.dask), name, example, regions)
 
 
 def _points_from_xy(x, y, crs=None):
@@ -426,7 +422,7 @@ def _points_from_xy(x, y, crs=None):
 def points_from_xy(x, y, crs=None):
     s = dd.map_partitions(_points_from_xy, x, y, crs=crs)
     example = gpd.GeoSeries(Point(0, 0))
-    return GeoSeries(s.dask, s._name, [all_space] * s.npartitions, example)
+    return GeoSeries(s.dask, s._name, example, [all_space] * s.npartitions)
 
 
 def set_geometry(df, geometry, crs=None):
@@ -443,7 +439,7 @@ def set_geometry(df, geometry, crs=None):
     example = df._meta.set_geometry(geometry._example)
 
     gdf = GeoDataFrame(merge(df.dask, geometry.dask, dsk),
-                       name, geometry._regions, example)
+                       name, example, geometry._regions)
     return gdf
 
 
