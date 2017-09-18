@@ -35,7 +35,8 @@ coarse_grid = [Polygon([(x, y), (x + coarse_delta, y),
 
 points = [Point(random.random(), random.random()) for i in range(200)]
 points_df = gpd.GeoDataFrame({'value': np.random.random(len(points)),
-                              'geometry': points})
+                              'geometry': points},
+                              index=np.arange(len(points)))
 
 
 def assert_eq(a, b):
@@ -59,6 +60,8 @@ def assert_eq(a, b):
 
     assert type(aa) == type(bb)
 
+    if isinstance(aa, pd.Index) and isinstance(bb, pd.Index):
+        return tm.assert_index_equal(aa, bb)
     aa = aa.sort_index()
     bb = bb.sort_index()
 
@@ -316,3 +319,8 @@ def test_sjoin_dask_normal():
     assert isinstance(df[['value']], dd.DataFrame)
     assert_eq((df.value > 0.5).value_counts(),
               (points_df.value > 0.5).value_counts())
+
+
+def test_sjoin_dask_normal():
+    df = dg.from_pandas(points_df, npartitions=4)
+    assert_eq(df.index, points_df.index)

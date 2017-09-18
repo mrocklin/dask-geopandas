@@ -24,6 +24,8 @@ def typeof(example):
         return GeoDataFrame
     elif isinstance(example, gpd.GeoSeries):
         return GeoSeries
+    elif isinstance(example, pd.Index):
+        return dd.Index
     elif isinstance(example, pd.Series):
         return dd.Series
     elif isinstance(example, pd.DataFrame):
@@ -57,7 +59,11 @@ class GeoFrame(dask.base.Base):
     __repr__ = __str__
 
     def __len__(self):
-        return len(self.compute())  # TODO: map_partitions(len).sum().compute()
+        return len(self.index)
+
+    @property
+    def index(self):
+        return self.map_partitions(getattr, 'index')
 
     def copy(self):
         return type(self)(self.dask, self._name, self._example, self._regions)
@@ -271,7 +277,6 @@ all_space = shapely.geometry.Polygon([(inf, inf), (inf, -inf),
                                       (-inf, -inf), (-inf, inf)])
 
 def from_pandas(df, npartitions=4):
-
     blocksize = len(df) // npartitions
     name = 'from-pandas-' + tokenize(df, npartitions)
     if npartitions > 1:
