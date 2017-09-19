@@ -324,3 +324,10 @@ def test_sjoin_dask_normal():
 def test_sjoin_dask_normal():
     df = dg.from_pandas(points_df, npartitions=4)
     assert_eq(df.index, points_df.index)
+
+
+def test_drop():
+    df = dg.from_pandas(points_df, npartitions=4)
+    assert_eq(df.drop('value', axis=1), points_df.drop('value', axis=1))
+    assert isinstance(df.drop('geometry', axis=1), dd.DataFrame)
+    assert_eq(df.drop('geometry', axis=1), points_df.drop('geometry', axis=1))

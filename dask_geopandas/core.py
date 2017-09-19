@@ -253,6 +253,11 @@ class GeoDataFrame(GeoFrame):
                  pd.compat.isidentifier(c)))
         return list(o)
 
+    def drop(self, column, axis=0):
+        if axis != 1:
+            raise NotImplementedError("Only supports axis=1")
+        return self.map_partitions(M.drop, column, axis=axis)
+
     @property
     def columns(self):
         return self._example.columns
