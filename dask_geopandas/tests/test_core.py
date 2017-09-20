@@ -296,6 +296,9 @@ def test_set_geometry():
     for c in ['x', 'y', 'value']:
         assert c in gdf.columns
 
+    assert_eq(ddf.set_geometry(ddf[['x', 'y']], crs='foo'),
+              dg.set_geometry(ddf, ddf[['x', 'y']], crs='foo'))
+
 
 def test_sjoin_dask_normal():
     df = dg.repartition(points_df, triangles)
