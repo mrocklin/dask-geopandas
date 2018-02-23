@@ -3,6 +3,27 @@ Dask Geopandas
 
 Parallel GeoPandas with Dask
 
+Status
+------
+
+*This project is not in a functional state and should not be relied upon.
+No guarantee of support is provided.*
+
+This was was originally implemented to demonstrate speedups from parallelism
+alongside an experimental Cythonized branch of GeoPandas.  That cythonized
+branch has since evolved to the point where the code here no longer works with
+the latest version.
+
+If you *really* want to get this to work then you should checkout the
+geopandas-cython branch of geopandas at about 2017-09-21 and build from source
+(this may not be fun).  But really the solution is probably to wait until
+everything settles.  There is no known timeline for this.
+
+If you would like to see this project in a more stable state then you might
+consider pitching in with developer time or with financial support from you or
+your company.
+
+
 Example
 -------
 
