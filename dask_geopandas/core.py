@@ -34,15 +34,15 @@ def typeof(example):
         raise TypeError()
 
 
-class GeoFrame(dask.base.Base):
-    _default_get = staticmethod(dask.threaded.get)
+def _finalize(result):
+    if isinstance(results[0], (gpd.GeoSeries, gpd.GeoDataFrame)):
+        return gpd.concat(results)
+    else:
+        return pd.concat(results)
 
-    @staticmethod
-    def _finalize(results):
-        if isinstance(results[0], (gpd.GeoSeries, gpd.GeoDataFrame)):
-            return gpd.concat(results)
-        else:
-            return pd.concat(results)
+
+class GeoFrame(dask.base.DaskMethodsMixin):
+    __dask_scheduler__ = staticmethod(dask.threaded.get)
 
     def __init__(self, dsk, name, example, regions):
         if not isinstance(regions, gpd.GeoSeries):
@@ -51,6 +51,15 @@ class GeoFrame(dask.base.Base):
         self._example = example
         self.dask = dsk
         self._name = name
+
+    def __dask_graph__(self):
+        return self.dask
+
+    def __dask_keys__(self):
+        return [(self._name, i) for i in range(len(self._regions))]
+
+    def __dask_postcompute__(self):
+        return _finalize, ()
 
     def __str__(self):
         return "<%s: %s, npartitions=%d>" % (type(self).__name__,
@@ -77,9 +86,6 @@ class GeoFrame(dask.base.Base):
     def plot(self):
         return self._regions.plot()
 
-    def _keys(self):
-        return [(self._name, i) for i in range(len(self._regions))]
-
     @property
     def npartitions(self):
         return len(self._regions)
@@ -88,10 +94,10 @@ class GeoFrame(dask.base.Base):
         example = func(self._example, *args, **kwargs)
         name = funcname(func) + '-' + tokenize(self, func, *args, **kwargs)
         if not args and not kwargs:
-            dsk = {(name, i): (func, key) for i, key in enumerate(self._keys())}
+            dsk = {(name, i): (func, key) for i, key in enumerate(self.__dask_keys__())}
         else:
             dsk = {(name, i): (apply, func, list((key,) + args), kwargs)
-                   for i, key in enumerate(self._keys())}
+                   for i, key in enumerate(self.__dask_keys__())}
         if isinstance(example, gpd.base.GeoPandasBase):
             regions = self._regions
         else:
@@ -425,7 +431,7 @@ def sjoin(left, right, how='inner', op='intersects', buffer=0.01):
 
 
 def _points_from_xy(x, y, crs=None):
-    points = gpd.vectorized.points_from_xy(x.values, y.values)
+    points = gpd.array.points_from_xy(x.values, y.values)
     return gpd.GeoSeries(points, index=x.index, crs=crs)
 
 
