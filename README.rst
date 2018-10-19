@@ -43,7 +43,7 @@ of spatial reasoning, but will still provide basic multi-core parallelism.
    import dask_geopandas as dg
    ddf = dg.from_pandas(df, npartitions=4)
 
-We can also repartition by a set of known regions.  This suffers an an upfront
+We can also repartition by a set of known regions.  This suffers an upfront
 cost of a spatial join, but enables spatial-aware computations in the future to
 be faster.
 
