@@ -6,6 +6,9 @@ Parallel GeoPandas with Dask
 Status
 ------
 
+**UPDATE**: current efforts are concentrated in a new repo at https://github.com/jsignell/dask-geopandas
+
+
 *This project is not in a functional state and should not be relied upon.
 No guarantee of support is provided.*
 
