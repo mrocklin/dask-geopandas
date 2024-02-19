@@ -6,8 +6,7 @@ Parallel GeoPandas with Dask
 Status
 ------
 
-**UPDATE**: current efforts are concentrated in a new repo at https://github.com/jsignell/dask-geopandas
-
+**UPDATE**: this project is now officially maintained by geopandas here: `geopandas/dask-geopandas`_
 
 *This project is not in a functional state and should not be relied upon.
 No guarantee of support is provided.*
@@ -67,3 +66,5 @@ data.
    df = dd.read_csv('...')
 
    df = df.set_geometry(df[['latitude', 'longitude']])
+
+.. _`geopandas/dask-geopandas`: https://github.com/geopandas/dask-geopandas
